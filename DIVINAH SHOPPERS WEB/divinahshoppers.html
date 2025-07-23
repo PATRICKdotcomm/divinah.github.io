@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DIVINAH SHOPPERS KENYA</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: auto; text-align: center; }
+        .welcome-section { margin: 50px 0; }
+        .admin-section { display: none; background: #f0f0f0; padding: 20px; margin-bottom: 20px; }
+        .admin-section.active { display: block; }
+        .products-section { padding: 20px; display: none; }
+        .products-section.active { display: block; }
+        .stock-form input, .stock-form button { margin: 5px; }
+        .stock-list { display: flex; flex-wrap: wrap; gap: 20px; }
+        .item { border: 1px solid #ccc; padding: 10px; width: 200px; text-align: center; }
+        .available { color: green; }
+        .exhausted { color: red; }
+        .login-form { margin-bottom: 20px; }
+        .login-form input, .login-form button { margin: 5px; }
+        .cart-section { margin-top: 20px; }
+        .cart-section button { margin: 5px; }
+        button { padding: 10px 20px; }
+    </style>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>DIVINAH SHOPPERS KENYA</h1>
+
+        <!-- Welcome Section with Buttons -->
+        <div class="welcome-section" id="welcomeSection">
+            <button onclick="showAdminLogin()">Admin</button>
+            <button onclick="showCollection()">Collection</button>
+        </div>
+
+        <!-- Login for Admin Access -->
+        <div class="login-form" id="loginForm" style="display: none;">
+            <input type="password" id="adminPassword" placeholder="Admin Password" required>
+            <button onclick="loginAdmin()">Login</button>
+        </div>
+
+        <!-- Admin Section -->
+        <div class="admin-section" id="adminSection">
+            <button onclick="goBack()">Back</button>
+            <h2>Admin - Manage Stock</h2>
+            <div class="stock-form">
+                <input type="text" id="itemName" placeholder="Item Name" required>
+                <input type="number" id="itemPrice" placeholder="Price (KSH)" step="0.01" required>
+                <input type="file" id="itemImage" accept="image/*" required>
+                <button onclick="addStock()">Add Item</button>
+                <button onclick="saveStock()">Save Stock</button>
+            </div>
+            <div id="adminStockList"></div>
+            <button onclick="logoutAdmin()">Logout</button>
+        </div>
+
+        <!-- Products Section for Customers -->
+        <div class="products-section" id="productsSection">
+            <button onclick="goBack()">Back</button>
+            <h2>Our Collection</h2>
+            <div class="stock-list" id="stockList"></div>
+            <div class="cart-section" id="cartSection" style="display: none;">
+                <h3>Your Cart</h3>
+                <ul id="cartItems"></ul>
+                <p>Total Items: <span id="totalItems">0</span></p>
+                <p>Total Amount: KSH <span id="totalAmount">0</span></p>
+                <button onclick="finishPurchase()">Buy</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Firebase configuration (replace with your Firebase project config)
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_AUTH_DOMAIN",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_STORAGE_BUCKET",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        let stock = [];
+        let cart = [];
+        const adminPassword = "divinah2025"; // Change to a secure method in production
+        const whatsappNumber = "+254705105082"; // WhatsApp number
+        let isAdminLoggedIn = false;
+
+        // Load stock from Firebase on page load
+        async function loadStock() {
+            try {
+                const snapshot = await db.collection('stock').get();
+                stock = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                updateStockDisplay();
+                updateAdminStockDisplay();
+            } catch (error) {
+                console.error("Error loading stock from Firebase:", error);
+                alert("Failed to load stock. Please try again later.");
+            }
+        }
+
+        // Save stock to Firebase
+        async function saveStock() {
+            try {
+                // Clear existing stock in Firebase
+                const snapshot = await db.collection('stock').get();
+                const batch = db.batch();
+                snapshot.docs.forEach(doc => batch.delete(doc.ref));
+                await batch.commit();
+
+                // Save new stock
+                for (const item of stock) {
+                    await db.collection('stock').add({
+                        name: item.name,
+                        price: item.price,
+                        image: item.image,
+                        available: item.available
+                    });
+                }
+                alert("Stock saved successfully to the server!");
+            } catch (error) {
+                console.error("Error saving stock to Firebase:", error);
+                alert("Failed to save stock. Please try again.");
+            }
+        }
+
+        // Load stock when the page loads
+        document.addEventListener('DOMContentLoaded', loadStock);
+
+        function showAdminLogin() {
+            document.getElementById('welcomeSection').style.display = 'none';
+            document.getElementById('loginForm').style.display = 'block';
+        }
+
+        function showCollection() {
+            document.getElementById('welcomeSection').style.display = 'none';
+            document.getElementById('productsSection').classList.add('active');
+            updateStockDisplay();
+        }
+
+        function goBack() {
+            document.getElementById('welcomeSection').style.display = 'block';
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('adminSection').classList.remove('active');
+            document.getElementById('productsSection').classList.remove('active');
+            document.getElementById('cartSection').style.display = 'none';
+        }
+
+        function loginAdmin() {
+            const password = document.getElementById('adminPassword').value;
+            if (password === adminPassword) {
+                isAdminLoggedIn = true;
+                document.getElementById('welcomeSection').style.display = 'none';
+                document.getElementById('loginForm').style.display = 'none';
+                document.getElementById('adminSection').classList.add('active');
+                document.getElementById('adminPassword').value = '';
+                updateAdminStockDisplay();
+            } else {
+                alert("Incorrect password!");
+            }
+        }
+
+        function logoutAdmin() {
+            isAdminLoggedIn = false;
+            document.getElementById('adminSection').classList.remove('active');
+            document.getElementById('welcomeSection').style.display = 'block';
+            document.getElementById('productsSection').classList.remove('active');
+        }
+
+        function addStock() {
+            const name = document.getElementById('itemName').value.trim();
+            const price = parseFloat(document.getElementById('itemPrice').value);
+            const imageInput = document.getElementById('itemImage');
+            const imageFile = imageInput.files[0];
+
+            if (!name || name.length > 100) {
+                alert("Please enter a valid item name (max 100 characters).");
+                return;
+            }
+            if (isNaN(price) || price <= 0) {
+                alert("Please enter a valid price greater than 0.");
+                return;
+            }
+            if (!imageFile || !imageFile.type.startsWith('image/') || imageFile.size > 2 * 1024 * 1024) {
+                alert("Please select a valid image file (max 2MB).");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const item = {
+                    name: name,
+                    price: price,
+                    image: e.target.result,
+                    available: true
+                };
+                stock.push(item);
+                updateStockDisplay();
+                updateAdminStockDisplay();
+                document.getElementById('itemName').value = '';
+                document.getElementById('itemPrice').value = '';
+                imageInput.value = '';
+                alert("Item added successfully! Click 'Save Stock' to save to the server.");
+            };
+            reader.readAsDataURL(imageFile);
+        }
+
+        function updateStockDisplay() {
+            const stockList = document.getElementById('stockList');
+            stockList.innerHTML = '';
+            stock.forEach(item => {
+                if (item.available) {
+                    const div = document.createElement('div');
+                    div.className = 'item';
+                    div.innerHTML = `
+                        <img src="${item.image}" alt="${item.name}" style="max-width: 100%; height: auto;">
+                        <h3>${item.name}</h3>
+                        <p>Price: KSH ${item.price}</p>
+                        <p>Status: <span class="${item.available ? 'available' : 'exhausted'}">
+                            ${item.available ? 'Available' : 'Exhausted'}
+                        </span></p>
+                        <button onclick="addToCart('${item.name}', ${item.price})">Add to Cart</button>
+                    `;
+                    stockList.appendChild(div);
+                }
+            });
+        }
+
+        function updateAdminStockDisplay() {
+            const adminStockList = document.getElementById('adminStockList');
+            adminStockList.innerHTML = '';
+            stock.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'item';
+                div.innerHTML = `
+                    <img src="${item.image}" alt="${item.name}" style="max-width: 100%; height: auto;">
+                    <h3>${item.name}</h3>
+                    <p>Price: KSH ${item.price}</p>
+                    <p>Status: <span class="${item.available ? 'available' : 'exhausted'}">
+                        ${item.available ? 'Available' : 'Exhausted'}
+                    </span></p>
+                    <button onclick="toggleAvailability('${item.name}')">Toggle Availability</button>
+                `;
+                adminStockList.appendChild(div);
+            });
+        }
+
+        async function toggleAvailability(name) {
+            const item = stock.find(item => item.name === name);
+            if (item) {
+                item.available = !item.available;
+                updateStockDisplay();
+                updateAdminStockDisplay();
+                await saveStock();
+            }
+        }
+
+        function addToCart(name, price) {
+            cart.push({ name: name, price: price });
+            updateCartDisplay();
+            document.getElementById('cartSection').style.display = 'block';
+            alert(`${name} has been added to your cart!`);
+        }
+
+        function updateCartDisplay() {
+            const cartItems = document.getElementById('cartItems');
+            const totalItems = document.getElementById('totalItems');
+            const totalAmount = document.getElementById('totalAmount');
+            cartItems.innerHTML = '';
+            cart.forEach(item => {
+                const li = document.createElement('li');
+                li.textContent = `${item.name} - KSH ${item.price}`;
+                cartItems.appendChild(li);
+            });
+            totalItems.textContent = cart.length;
+            totalAmount.textContent = cart.reduce((sum, item) => sum + parseFloat(item.price), 0).toFixed(2);
+        }
+
+        function finishPurchase() {
+            if (cart.length > 0) {
+                const confirmPurchase = confirm("Are you sure you want to send the order to WhatsApp?");
+                if (confirmPurchase) {
+                    const totalItems = cart.length;
+                    const totalAmount = cart.reduce((sum, item) => sum + parseFloat(item.price), 0).toFixed(2);
+                    const message = `Hello! I would like to buy the following items from DIVINAH SHOPPERS KENYA:\n${cart.map(item => `- ${item.name} (KSH ${item.price})`).join('\n')}\nTotal Items: ${totalItems}\nTotal Amount: KSH ${totalAmount}\nPlease confirm availability and let me know the next steps.`;
+                    const whatsappURL = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
+                    window.open(whatsappURL, '_blank');
+                    // Cart is not cleared to allow resending the link
+                    updateCartDisplay();
+                }
+            } else {
+                alert("Your cart is empty!");
+            }
+        }
+    </script>
+</body>
+</html>
